@@ -1,51 +1,104 @@
-import { useEffect, useState } from "react"
-import { Link, useParams } from "react-router-dom"
-import { motion, type Variants } from "framer-motion"
-import { getDetails, imageUrl } from "@/api/tmdb"
-import { interactive, mockPrice, ratingLabel, rupees } from "@/utils/constants"
+import { useEffect, useState } from "react";
+import { Link, useParams } from "react-router-dom";
+import { motion, type Variants } from "framer-motion";
+import { getDetails, imageUrl } from "@/api/tmdb";
+import { interactive, mockPrice, ratingLabel, rupees } from "@/utils/constants";
+import type { MovieDetailsType } from "@/types/tmdb";
 
-type Details = Awaited<ReturnType<typeof getDetails>>
-
-const container: Variants = { hidden: {}, show: { transition: { staggerChildren: 0.08 } } }
+const container: Variants = {
+  hidden: {},
+  show: { transition: { staggerChildren: 0.08 } },
+};
 const item: Variants = {
   hidden: { opacity: 0, y: 20 },
   show: { opacity: 1, y: 0, transition: { duration: 0.4 } },
-}
+};
 
 const sectionTitle =
-  "scroll-mt-24 border-b border-white/10 pb-2 text-xl font-bold uppercase tracking-wide text-white transition-colors duration-300 target:text-[#a4d007]"
+  "scroll-mt-24 border-b border-white/10 pb-2 text-xl font-bold uppercase tracking-wide text-white transition-colors duration-300 target:text-[#a4d007]";
+
+function isAbortError(err: unknown): boolean {
+  return (
+    (err instanceof DOMException && err.name === "AbortError") ||
+    (typeof err === "object" &&
+      err !== null &&
+      "name" in err &&
+      ((err as { name?: string }).name === "AbortError" ||
+        (err as { name?: string }).name === "CanceledError")) ||
+    (typeof err === "object" &&
+      err !== null &&
+      "code" in err &&
+      (err as { code?: string }).code === "ERR_CANCELED")
+  );
+}
+
+function getErrorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  return "Something went wrong. Please try again.";
+}
 
 export default function MovieDetailsPage() {
-  const { id } = useParams()
-  const [movie, setMovie] = useState<Details | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [inCart, setInCart] = useState(false)
-  const [wished, setWished] = useState(false)
+  const { id } = useParams<{ id: string }>();
+  const movieId = Number(id);
+
+  const [movie, setMovie] = useState<MovieDetailsType | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [inCart, setInCart] = useState<boolean>(false);
+  const [wished, setWished] = useState<boolean>(false);
 
   useEffect(() => {
-    const controller = new AbortController()
-    setMovie(null)
-    setError(null)
-    setInCart(false)
-    setWished(false)
-    window.scrollTo({ top: 0 })
-    getDetails(Number(id), controller.signal)
+    if (!id || Number.isNaN(movieId)) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setError("Invalid movie id.");
+      return;
+    }
+
+    const controller = new AbortController();
+    setMovie(null);
+    setError(null);
+    setInCart(false);
+    setWished(false);
+    window.scrollTo({ top: 0 });
+
+    getDetails(movieId, controller.signal)
       .then(setMovie)
-      .catch((e) => {
-        if (e.name !== "AbortError") setError(e.message)
+      .catch((err: unknown) => {
+        if (isAbortError(err)) return;
+        setError(getErrorMessage(err));
+      });
+
+    return () => controller.abort();
+  }, [id, movieId]);
+
+  if (error) {
+    return (
+      <p role="alert" className="min-h-screen bg-[#120a0a] p-28 text-red-400">
+        {error}
+      </p>
+    );
+  }
+
+  if (!movie)
+    return (
+      <div
+        className="h-screen animate-pulse bg-[#1f0f0d]"
+        aria-busy="true"
+        aria-label="Loading movie details"
+      />
+    );
+
+  const { price, original, discount } = mockPrice(movie.id);
+  const runtime = movie.runtime ?? 0;
+  const hours = Math.floor(runtime / 60);
+  const mins = runtime % 60;
+  const released: string = movie.release_date
+    ? new Date(movie.release_date).toLocaleDateString("en-IN", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
       })
-    return () => controller.abort()
-  }, [id])
+    : "TBA";
 
-  if (error) return <p role="alert" className="min-h-screen bg-[#120a0a] p-28 text-red-400">{error}</p>
-  if (!movie) return <div className="h-screen animate-pulse bg-[#1f0f0d]" />
-
-  const { price, original, discount } = mockPrice(movie.id)
-  const hours = Math.floor((movie.runtime ?? 0) / 60)
-  const mins = (movie.runtime ?? 0) % 60
-  const released = movie.release_date
-    ? new Date(movie.release_date).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
-    : "TBA"
   return (
     <article className="relative min-h-screen overflow-hidden bg-[#120a0a] pb-20">
       {/* blurred backdrop */}
@@ -71,12 +124,16 @@ export default function MovieDetailsPage() {
           >
             ← Back to browse
           </Link>
-          <h1 className="mt-3 text-4xl font-extrabold text-white md:text-5xl">{movie.title}</h1>
-          {movie.tagline && <p className="mt-1 italic text-[#8f98a0]">{movie.tagline}</p>}
+          <h1 className="mt-3 text-4xl font-extrabold text-white md:text-5xl">
+            {movie.title}
+          </h1>
+          {movie.tagline ? (
+            <p className="mt-1 italic text-[#8f98a0]">{movie.tagline}</p>
+          ) : null}
         </motion.div>
 
         <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_324px]">
-          {/* left: big image + purchase box */}
+            
           <motion.div variants={item} className="space-y-6">
             <img
               src={imageUrl(movie.backdrop_path ?? movie.poster_path, "w780")}
@@ -90,12 +147,18 @@ export default function MovieDetailsPage() {
               className="flex flex-wrap items-center justify-between gap-4 rounded-sm border border-transparent bg-[#2a1712] p-5 transition-colors duration-200 hover:border-white/10 focus-within:border-[#a4d007]"
             >
               <div>
-                <h2 className="text-lg font-semibold text-white">Buy {movie.title}</h2>
-                <p className="text-sm text-[#8f98a0]">Mock price for the demo</p>
+                <h2 className="text-lg font-semibold text-white">
+                  Buy {movie.title}
+                </h2>
+                <p className="text-sm text-[#8f98a0]">
+                  Mock price for the demo
+                </p>
               </div>
               <div className="flex flex-wrap items-center gap-3">
                 <div className="flex items-stretch text-sm">
-                  <span className="bg-[#a4d007] px-2 py-1.5 text-lg font-bold text-black">-{discount}%</span>
+                  <span className="bg-[#a4d007] px-2 py-1.5 text-lg font-bold text-black">
+                    -{discount}%
+                  </span>
                   <span className="flex items-center gap-2 bg-black/60 px-3 text-white">
                     <s className="text-xs text-white/50">{rupees(original)}</s>
                     <span className="text-lg">{rupees(price)}</span>
@@ -128,13 +191,19 @@ export default function MovieDetailsPage() {
               alt={`${movie.title} poster`}
               className="mx-auto w-48 rounded-sm shadow-xl lg:w-full"
             />
-            <p className="line-clamp-5 text-sm leading-relaxed text-[#c6d4df]">{movie.overview}</p>
+            <p className="line-clamp-5 text-sm leading-relaxed text-[#c6d4df]">
+              {movie.overview}
+            </p>
             <dl className="space-y-2 text-sm">
               <div className="flex gap-3">
                 <dt className="w-28 shrink-0 text-[#8f98a0]">Reviews</dt>
                 <dd>
-                  <span className="text-[#66c0f4]">{ratingLabel(movie.vote_average)}</span>{" "}
-                  <span className="text-white/60">({(movie.vote_count ?? 0).toLocaleString("en-IN")})</span>
+                  <span className="text-[#66c0f4]">
+                    {ratingLabel(movie.vote_average)}
+                  </span>{" "}
+                  <span className="text-white/60">
+                    ({movie.vote_count.toLocaleString("en-IN")})
+                  </span>
                 </dd>
               </div>
               <div className="flex gap-3">
@@ -144,7 +213,10 @@ export default function MovieDetailsPage() {
             </dl>
             <ul className="flex flex-wrap gap-1.5">
               {movie.genres.map((g) => (
-                <li key={g.id} className="rounded-sm bg-[#7b3f30] px-2 py-1 text-xs text-[#e8cfc6]">
+                <li
+                  key={g.id}
+                  className="rounded-sm bg-[#7b3f30] px-2 py-1 text-xs text-[#e8cfc6]"
+                >
                   {g.name}
                 </li>
               ))}
@@ -152,29 +224,61 @@ export default function MovieDetailsPage() {
           </motion.aside>
         </div>
 
-        <motion.section variants={item} aria-labelledby="about" className="mt-6 max-w-3xl">
-          <h2 id="about" className={sectionTitle}>About this movie</h2>
-          <p className="mt-4 leading-relaxed text-[#c6d4df]">{movie.overview || "No description available."}</p>
+        <motion.section
+          variants={item}
+          aria-labelledby="about"
+          className="mt-6 max-w-3xl"
+        >
+          <h2 id="about" className={sectionTitle}>
+            About this movie
+          </h2>
+          <p className="mt-4 leading-relaxed text-[#c6d4df]">
+            {movie.overview || "No description available."}
+          </p>
         </motion.section>
 
-        <motion.section variants={item} aria-labelledby="details" className="mt-10 max-w-3xl">
-          <h2 id="details" className={sectionTitle}>Details</h2>
+        <motion.section
+          variants={item}
+          aria-labelledby="details"
+          className="mt-10 max-w-3xl"
+        >
+          <h2 id="details" className={sectionTitle}>
+            Details
+          </h2>
           <dl className="mt-4 grid grid-cols-[8rem_1fr] gap-y-2 text-sm">
             <dt className="text-[#8f98a0]">Release date</dt>
             <dd className="text-[#c6d4df]">{released}</dd>
-            {movie.runtime > 0 && (
+            {runtime > 0 && (
               <>
                 <dt className="text-[#8f98a0]">Runtime</dt>
-                <dd className="text-[#c6d4df]">{hours}h {mins}m</dd>
+                <dd className="text-[#c6d4df]">
+                  {hours}h {mins}m
+                </dd>
               </>
             )}
             <dt className="text-[#8f98a0]">Rating</dt>
-            <dd className="text-[#c6d4df]">★ {movie.vote_average.toFixed(1)} / 10</dd>
+            <dd className="text-[#c6d4df]">
+              ★ {movie.vote_average.toFixed(1)} / 10
+            </dd>
             <dt className="text-[#8f98a0]">Genres</dt>
-            <dd className="text-[#c6d4df]">{movie.genres.map((g) => g.name).join(", ") || "N/A"}</dd>
+            <dd className="text-[#c6d4df]">
+              {movie.genres.map((g) => g.name).join(", ") || "N/A"}
+            </dd>
+            {movie.original_title !== movie.title && (
+              <>
+                <dt className="text-[#8f98a0]">Original title</dt>
+                <dd className="text-[#c6d4df]">{movie.original_title}</dd>
+              </>
+            )}
+            {movie.status && (
+              <>
+                <dt className="text-[#8f98a0]">Status</dt>
+                <dd className="text-[#c6d4df]">{movie.status}</dd>
+              </>
+            )}
           </dl>
         </motion.section>
       </motion.div>
     </article>
-  )
+  );
 }
